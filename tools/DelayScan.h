@@ -13,7 +13,7 @@
 
 typedef std::map<Cbc*,TCanvas*> CanvasMap;
 typedef std::map<Cbc*,TH2F*> Hist2DMap;
-typedef std::map<Cbc*,TH1F*> PulseShapeMap;
+typedef std::map<Cbc*,std::vector<TH1F*>> PulseShapeVecMap;
 typedef std::vector<std::vector<std::vector<double>>> vector3D;
 typedef std::vector<std::vector<double>>  vector2D;
 typedef std::vector<double>   vector1D;
@@ -45,7 +45,7 @@ class DelayScan : public Tool
 
   CanvasMap     fCanvasMap;
   Hist2DMap     f2DHistMap;
-  PulseShapeMap fPulseShapeMap;
+  PulseShapeVecMap fPulseShapeVecMap;
   ThreshMap     ThresholdMap;
 
  private:

@@ -11,7 +11,9 @@ void DelayScan::Initialize()
   fFe    = fBoard->fModuleVector[0];
   uint32_t cFeId = fFe->getFeId();
   
-  uint32_t cDelayAfterPulse = fBeBoardInterface->ReadBoardReg( fBoard, DELAY_AF_TEST_PULSE );
+  //uint32_t cDelayAfterPulse = fBeBoardInterface->ReadBoardReg( fBoard, DELAY_AF_TEST_PULSE );
+  CbcRegWriter cWriter( fCbcInterface, "Vplus", fVplus );
+  this->accept( cWriter );
 	      
   for ( auto& cCbc : fFe->fCbcVector )
     {
@@ -19,20 +21,21 @@ void DelayScan::Initialize()
       
       // One canvas for each CBC
       TString cCanvasName = Form( "FE%dCBC%d  Online Canvas", cFeId, cCbcId );
-      TCanvas* ctmpCanvas = new TCanvas( cCanvasName , cCanvasName , 1300 , 700 );
+      TCanvas* ctmpCanvas = new TCanvas( cCanvasName , cCanvasName , 1200 , 700 );
       ctmpCanvas->Divide( 3, 1 );
       fCanvasMap[cCbc] = ctmpCanvas;
 
       // 2D histogram for the final plot, one per CBC
       uint32_t AmpRange = fAmpMax - fAmpMin;
       uint32_t DelayRange = fDelayMax - fDelayMin;
-      std::cout<<"ampr: "<<AmpRange<<"      "<<"dely: "<<DelayRange<<std::endl;
+      //std::cout<<"ampr: "<<AmpRange<<"      "<<"dely: "<<DelayRange<<std::endl;
       TString cHistName = Form( "Hist2D_Cbc%d" , cCbcId );
       TH2F* cAmpDel = new TH2F( cHistName , cHistName , AmpRange/fAmpStep , fAmpMin , fAmpMax ,fDelayMax-fDelayMin , fDelayMin , fDelayMax );
       cAmpDel->GetXaxis()->SetTitle( "Pulse Amplitude" );
       cAmpDel->GetYaxis()->SetTitle( "Pulse Delay" );
       f2DHistMap[cCbc] = cAmpDel;
       
+      std::vector<TH1F*> cPulseShapeVec;
       // Create graphs for each CBC 
       TString cName =  Form( "Pulseshape_Cbc%d", cCbcId );
       TObject* cObj = gROOT->FindObject( cName );
@@ -42,7 +45,14 @@ void DelayScan::Initialize()
       cPulseGraph->SetMarkerStyle( 3 );
       cPulseGraph->GetXaxis()->SetTitle( "TestPulseDelay [ns]" );
       cPulseGraph->GetYaxis()->SetTitle( "Threshold" );
-      fPulseShapeMap[cCbc] = cPulseGraph;
+      cPulseShapeVec.push_back(cPulseGraph);
+      
+      TString cNameMax = Form( "PulseshapeMax_Cbc%d", cCbcId);
+      TH1F* cPulseMax = new TH1F(cNameMax , cNameMax , fDelayMax-fDelayMin , fDelayMin , fDelayMax);
+      cPulseMax->SetMarkerStyle(22);
+      cPulseShapeVec.push_back(cPulseMax);
+
+      fPulseShapeVecMap[cCbc]=cPulseShapeVec;
     }     
 }
 
@@ -72,13 +82,21 @@ void DelayScan::ScanTestPulseAmplitude(uint32_t cFineDelay)
 	  
 	  auto cCanvas = fCanvasMap.find(cCbc)->second;
 	  auto c2DHist = f2DHistMap.find(cCbc)->second;
-	  auto cPulseShape = fPulseShapeMap.find(cCbc)->second;
+
+	  auto cPulseMin = (fPulseShapeVecMap.find(cCbc)->second)[0];
+	  auto cPulseMax = (fPulseShapeVecMap.find(cCbc)->second)[1];
 	  
 	  if (cAmp==fAmpMin)
 	    {
-	      cPulseShape->Fill(cFineDelay , VCthMid[cCbcId] );
+	      cPulseMin->Fill(cFineDelay , VCthMid[cCbcId] );
 	      cCanvas->cd(2);
-	      cPulseShape->Draw();
+	      cPulseMin->Draw("hist same p");
+	    }
+	  if (cAmp>=fAmpMax-fAmpStep)
+	    {
+	      cPulseMax->Fill(cFineDelay , VCthMid[cCbcId] );
+	      cCanvas->cd(2);
+	      cPulseMax->Draw("hist same p");
 	    }
 	  
 	  c2DHist->Fill( cAmp , cFineDelay , VCthMid[cCbcId] );
@@ -90,51 +108,56 @@ void DelayScan::ScanTestPulseAmplitude(uint32_t cFineDelay)
     }
 }
 
-vector1D DelayScan::ScanVCth(uint32_t cFineDelay , uint32_t cAmp)
+vector1D DelayScan::ScanVCth( uint32_t cFineDelay , uint32_t cAmp)
 {
-  uint32_t cVCth = fVplus;
+  uint32_t cVCth = fVplus-10;
+  uint32_t cVCthStep = 5;
   uint32_t NZeros = 0;
-  
+    
   while (NZeros < 5)
     {
       CbcRegWriter cWriter( fCbcInterface, "VCth", cVCth );
       this->accept( cWriter );
-      
-      // then we take fNEvents
-      vector2D EventData;
+        
+      vector2D EventData; // then we take fNumEvents
       uint32_t N = 0;
       uint32_t AcqNum = 0;
-
+        
       fBeBoardInterface->Start( fBoard ); // start of data capture
       while (N < fNumEvents )
-	{
+        {
 	  fBeBoardInterface->ReadData(fBoard,AcqNum,false);
 	  const Event* cEvent = fBeBoardInterface->GetNextEvent(fBoard);
 	  while (cEvent)
-	    {
+            {
 	      vector1D CbcData;
 	      for (auto& cCbc : fFe->fCbcVector )
-		{
+                {
 		  uint32_t cCbcId = cCbc->getCbcId();
 		  double result = cEvent->DataBit( 0 , cCbcId , fChannel);
 		  CbcData.push_back(result);
-		}
+                }
 	      EventData.push_back(CbcData);
 	      N++;
 	      if (N <= fNumEvents )
 		cEvent = fBeBoardInterface->GetNextEvent(fBoard);
 	      else break;
-	    }
+            }
 	  AcqNum++;
-	}
+        }
       fBeBoardInterface->Stop( fBoard, AcqNum ); // end of data capture
-
+        
       vector1D EventAvg = EventAveraging(EventData);
-      if (EventAvg[0]+EventAvg[1]==0) NZeros++;
+      if (EventAvg[0]+EventAvg[1] < 1 && cVCthStep==5)
+        {
+	  cVCthStep = 1;
+	  cVCth = cVCth-6;
+        }
+      if (EventAvg[0]+EventAvg[1]==0) NZeros++; // stop after threshold high enough
       ThresholdMap[cVCth] = EventAvg;
-      cVCth++;
+      cVCth += cVCthStep;
     }
-  
+
   vector1D cMidPoints = MakeScurve(ThresholdMap,cFineDelay,cAmp,cVCth-1);
   return cMidPoints;
 }
@@ -147,7 +170,7 @@ vector1D DelayScan::MakeScurve(ThreshMap ThresholdMap , uint32_t cFineDelay , ui
   for (auto& cCbc : fFe->fCbcVector)
     {
       uint32_t cCbcId = cCbc->getCbcId();
-      uint32_t cVCthMin = fVplus;
+      uint32_t cVCthMin = fVplus-10;
 
       // Canvas recall
       auto cCanvas = fCanvasMap.find(cCbc)->second;
@@ -190,7 +213,6 @@ vector1D DelayScan::MakeScurve(ThreshMap ThresholdMap , uint32_t cFineDelay , ui
 
       double cMiddle = (cFirst1 + cFirstNon0 ) * 0.5;
       double cWidth  = (cFirst1 - cFirstNon0 ) * 0.5;
-      //std::cout<<"Mid: "<<cMiddle<<std::endl;
 
       cFit->SetParameter( 0 , cMiddle);
       cFit->SetParameter( 1 , cWidth );
@@ -202,11 +224,9 @@ vector1D DelayScan::MakeScurve(ThreshMap ThresholdMap , uint32_t cFineDelay , ui
       cScurve->Draw("hist p");
       cFit->Draw("same");
       
-      // TEMPORARY SOLUTION: need to find the midpoint from the fit, not from the estimate
-      //cMidPoints.push_back(cMiddle);
-      
       uint32_t cMiddleFit = cFit->GetX( 0.5 , cFirst1 , cFirstNon0 );
       cMidPoints.push_back(cMiddleFit);
+      //std::cout<<"midplot: "<<cMiddleFit<<std::endl;
 
       cCanvas->Update();
     }
@@ -223,6 +243,7 @@ vector1D DelayScan::EventAveraging(vector2D EventRes)
       double sum = 0;
       for (int ii=0; ii<fNumEvents; ii++)
 	sum += EventRes[ii][cCbcId];
+      //std::cout<<sum/fNumEvents<<std::endl;
       EventAvg.push_back(sum/fNumEvents);
     }
   return EventAvg;
@@ -234,7 +255,7 @@ void DelayScan::setDelayAndTestGroup( uint32_t pDelay )
   uint8_t cCoarseDelay = floor( pDelay  / 25 );
   uint8_t cFineDelay = ( cCoarseDelay * 25 ) + 24 - pDelay;
 
-  std::cout << "Current Time: " << pDelay<<" = "<<cCoarseDelay+cFineDelay<< std::endl;
+  std::cout << "Current Time: " << pDelay<< std::endl;
   BeBoardRegWriter cBeBoardWriter( fBeBoardInterface, DELAY_AF_TEST_PULSE, cCoarseDelay );
   this->accept( cBeBoardWriter );
   CbcRegWriter cWriter( fCbcInterface, "SelTestPulseDel&ChanGroup", to_reg( cFineDelay, fTestGroup ) );
