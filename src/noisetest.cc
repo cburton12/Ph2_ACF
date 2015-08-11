@@ -29,7 +29,7 @@ int main( int argc, char* argv[] )
     }
     
     // now query the parsing results
-    std::string cHWFile = "settings/DelayTest.xml";
+    std::string cHWFile = "settings/PulseNoiseStudy.xml";
     uint8_t cSelectedChannel = ( cmd.foundOption( "channel" ) ) ? convertAnyInt( cmd.optionValue( "channel" ).c_str() ) : 1;
     
     TApplication cApp( "Root Application", &argc, argv );
@@ -43,6 +43,7 @@ int main( int argc, char* argv[] )
     
     cPulseNoiseStudy.ScanAmplitudes();
     
+    std::cout<<"Done!"<<std::endl;
     cApp.Run();
     return 0;
 }

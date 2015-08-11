@@ -37,14 +37,13 @@ public:
     void setDelayAndTestGroup(uint32_t cDelay);
     vector1D EventAveraging( vector2D EventRes );
     int findTestGroup();
-    vector1D ScanVCthEff( uint32_t cAmp );
     
     // global
     Shelve*  fShelve;
     BeBoard* fBoard ;
     Module*  fFe    ;
     
-    uint32_t fNumEvents, fVplus, fChannel, fAmpMax, fAmpMin, fAmpStep;
+    uint32_t fNumEvents, fVplus, fChannel, fAmpMin, fAmpMax, fAmpStep;
     uint32_t pDelayMin, pDelayMax;
     int fTestGroup;
     

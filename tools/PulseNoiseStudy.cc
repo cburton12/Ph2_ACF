@@ -13,10 +13,7 @@ void PulseNoiseStudy::Initialize()
   fFe = fBoard->fModuleVector[0];
   uint32_t BoardId=fBoard->getBeId();
   uint32_t FeId=fFe->getFeId();
-    
-  uint32_t pDelayMin = 5000;
-  uint32_t pDelayMax = 5025;
-    
+
   // initialize canvases/histograms here...
   for (auto& cCbc : fFe->fCbcVector)
     {
@@ -30,7 +27,9 @@ void PulseNoiseStudy::Initialize()
       TString cHistName = Form( "FE%dCBC%d_histogram" , 0 , cCbcId);
       TH1F* cHist = new TH1F( cHistName , cHistName , AmpRange/fAmpStep , fAmpMin , fAmpMax);
       cHist->GetXaxis()->SetTitle( "Amplitude" );
-      cHist->GetYaxis()->SetTitle( "Efficiency" );
+      cHist->GetYaxis()->SetTitle( "Threshold" );
+      //      cHist->GetYaxis()->SetRangeUser(0.,200.);
+      cHist->GetYaxis()->SetRangeUser(0.,fAmpMax+fVplus);
       fHistMap[cCbc] = cHist;
     }
 }
@@ -39,14 +38,16 @@ void PulseNoiseStudy::Initialize()
 void PulseNoiseStudy::ScanAmplitudes()
 {
   vector1D cPulsePeakVec = findPulseMax( fAmpMin );
-  //setDelayAndTestGroup(cPulsePeak);
+
   // sets for all cbc's... taking the average here I guess?
   setDelayAndTestGroup( floor( (cPulsePeakVec[0]+cPulsePeakVec[1]) / 2 ) );
-    
-  for (uint32_t cAmp = fAmpMin+1; cAmp<fAmpMax; cAmp += fAmpStep)
-    { // we've already done fAmpMin in "findPulseMax"; proceed to next one.
+  //setDelayAndTestGroup( 5066 );
+
+  for (uint32_t cAmp = fAmpMin; cAmp<fAmpMax; cAmp += fAmpStep)
+    {
       setSystemTestPulse( cAmp );
-      vector1D cMidPoints = ScanVCthEff( cAmp );
+      std::cout<<"Amplitude: "<<cAmp<<std::endl;
+      vector1D cMidPoints = ScanVCth( cAmp );
         
       for (auto& cCbc : fFe->fCbcVector)
         {
@@ -68,10 +69,15 @@ vector1D PulseNoiseStudy::findPulseMax( uint32_t fAmpMin )
   setSystemTestPulse( fAmpMin );
     
   vector2D AmpScanVec;
+
+  uint32_t pDelayMin = 5060;
+  uint32_t pDelayMax = 5070;
+
   for (uint32_t cDelay = pDelayMin; cDelay < pDelayMax; cDelay++)
     {
+      std::cout<<"Delay: "<<cDelay<<std::endl;
       setDelayAndTestGroup(cDelay);
-      vector1D AmpScanRes = ScanVCthEff(fAmpMin);
+      vector1D AmpScanRes = ScanVCth(fAmpMin);
       AmpScanVec.push_back( AmpScanRes );
     }
   vector1D cPulsePeakVec;
@@ -85,6 +91,7 @@ vector1D PulseNoiseStudy::findPulseMax( uint32_t fAmpMin )
 	}
       cPulsePeakVec.push_back(cPulsePeak);
     }
+  std::cout<<"pp: "<<cPulsePeakVec[0]<<std::endl;
   return cPulsePeakVec;
 }
 
@@ -92,13 +99,15 @@ vector1D PulseNoiseStudy::findPulseMax( uint32_t fAmpMin )
 vector1D PulseNoiseStudy::ScanVCth(uint32_t cAmp)
 {
   DataMap cDataMap;
-  uint32_t cVCth = fVplus;
+  uint32_t cVCth = fVplus-10;
+  uint32_t cVCthStep = 5;
   uint32_t NZeros = 0;
     
   while (NZeros < 5)
     {
       CbcRegWriter cWriter( fCbcInterface, "VCth", cVCth );
       this->accept( cWriter );
+      //std::cout<<"VCth: "<<cVCth<<std::endl;
         
       vector2D EventData; // then we take fNumEvents
       uint32_t N = 0;
@@ -127,11 +136,17 @@ vector1D PulseNoiseStudy::ScanVCth(uint32_t cAmp)
 	  AcqNum++;
         }
       fBeBoardInterface->Stop( fBoard, AcqNum ); // end of data capture
-        
+
       vector1D EventAvg = EventAveraging(EventData);
-      if (EventAvg[0]+EventAvg[1]==0) NZeros++; // stop after threshold high enough
+      if (EventAvg[0]+EventAvg[1] < 1 && cVCthStep==5)
+        {
+	  cVCthStep = 1;
+	  cVCth -= 8;
+        }
+      if (EventAvg[0]+EventAvg[1]==0 && cVCthStep==1)
+	NZeros++; // stop after threshold high enough
       cDataMap[cVCth] = EventAvg;
-      cVCth++;
+      cVCth += cVCthStep;
     }
     
   vector1D cMidPoints = MakeScurve(cDataMap,cAmp,cVCth-1);
@@ -145,23 +160,25 @@ vector1D PulseNoiseStudy::MakeScurve( DataMap cDataMap , uint32_t cAmp , uint32_
   for (auto& cCbc : fFe->fCbcVector)
     {
       uint32_t cCbcId = cCbc->getCbcId();
-      uint32_t cVCthMin = fVplus;
+      uint32_t cVCthMin = fVplus-10;
         
       //initialize hists/fits
       TString cScurveName = Form( "FE%dCBC%d_Scurve" , 0 , cCbcId);
-      TH1F* cScurve = new TH1F( cScurveName , cScurveName , cVCthMax - cVCthMin , cVCthMin , cVCthMax );
+      TH1F* cScurve = dynamic_cast<TH1F*>( gROOT->FindObject(cScurveName) );
+      if (cScurve) delete cScurve;
+      cScurve = new TH1F( cScurveName , cScurveName , cVCthMax - cVCthMin + 20 , cVCthMin-10 , cVCthMax+10 );
       cScurve->GetXaxis()->SetTitle( "VCth" );
       cScurve->GetYaxis()->SetTitle( "Occupancy" );
+      cScurve->SetMarkerStyle(7);
         
       TString cFitName = Form( "Fit_Amp%d" , cAmp );
       TF1* cFit = dynamic_cast<TF1*>( gROOT->FindObject(cFitName) );
-      cFit = new TF1( cFitName , MyErf , cVCthMin-5 , cVCthMax+5 , 2 );
-      cFit->GetYaxis()->SetRange(0,1);
+      if(cFit) delete cFit;
+      cFit = new TF1( cFitName , MyErf , cVCthMin-10 , cVCthMax+10 , 2 );
         
-      // fill curves
-      for (uint32_t cVCth = cVCthMin; cVCth<cVCthMax; cVCth++)
-	cScurve->Fill( cVCth , (cDataMap.find(cVCth)->second)[cCbcId] );
-        
+      for (auto& cVCthMap : cDataMap)
+	  cScurve->Fill( cVCthMap.first , cVCthMap.second[cCbcId] );
+
       // make fit
       double cFirstNon0 = 0;
       double cFirst1 = 0;
@@ -189,7 +206,7 @@ vector1D PulseNoiseStudy::MakeScurve( DataMap cDataMap , uint32_t cAmp , uint32_
       cCanvas->cd(1);
       cScurve->Fit(cFit , "RNQ+" );
       cCanvas->cd(1);
-      cScurve->Draw("hist c");
+      cScurve->Draw("hist p");
       cFit->Draw("same");
       cCanvas->Update();
         
@@ -205,7 +222,6 @@ void PulseNoiseStudy::setSystemTestPulse(uint32_t cAmp)
   this->fTestGroup = findTestGroup();
     
   // vector of registers to edit
-  //std::vector<std::pair<std::string,uint32_t>>cRegVec;
   std::vector<std::pair<std::string,uint8_t >> cRegVec;
   cRegVec.push_back( std::make_pair("MiscTestPulseCtrl&AnalogMux",0xD1) );
   cRegVec.push_back( std::make_pair("TestPulsePot",cAmp) );
@@ -220,7 +236,6 @@ void PulseNoiseStudy::setDelayAndTestGroup(uint32_t cDelay)
 {
   uint32_t cCoarseDelay = floor( cDelay / 25 );
   uint32_t cFineDelay = (cCoarseDelay*25) + 24 - cDelay;
-  std::cout<<"Current time: "<<cDelay<<std::endl;
     
   BeBoardRegWriter cBeBoardRegWriter( fBeBoardInterface, DELAY_AF_TEST_PULSE, cCoarseDelay);
   this->accept( cBeBoardRegWriter );
@@ -233,7 +248,7 @@ void PulseNoiseStudy::setDelayAndTestGroup(uint32_t cDelay)
 void PulseNoiseStudy::ParseSettings()
 {
   // transfering the settings from the map to the global variables
-  auto cSetting = fSettingsMap.find("NumEvents");
+  auto cSetting = fSettingsMap.find("Nevents");
   fNumEvents = cSetting->second;
   cSetting = fSettingsMap.find("Vplus");
   fVplus = cSetting->second;
@@ -251,13 +266,19 @@ void PulseNoiseStudy::ParseSettings()
 vector1D PulseNoiseStudy::EventAveraging(vector2D EventRes)
 {
   vector1D EventAvg;
+  double cNumEvents = fNumEvents;
+
   for (auto& cCbc : fFe->fCbcVector)
     {
       uint32_t cCbcId = cCbc->getCbcId();
       double sum = 0;
-      for (int ii=0; ii<fNumEvents; ii++)
+      for (int ii=0; ii<cNumEvents; ii++)
 	sum += EventRes[ii][cCbcId];
-      EventAvg.push_back(sum/fNumEvents);
+
+      double avgval = sum/cNumEvents;
+      //std::cout<<"avgval: "<<avgval<<std::endl;
+
+      EventAvg.push_back(avgval);
     }
   return EventAvg;
 }
@@ -273,60 +294,4 @@ int PulseNoiseStudy::findTestGroup()
 	cGroup = result;
     }
   return cGroup;
-}
-
-
-vector1D PulseNoiseStudy::ScanVCthEff(uint32_t cAmp)
-{
-  DataMap cDataMap;
-  uint32_t cVCth = fVplus;
-  uint32_t cVCthStep = 5;
-  uint32_t NZeros = 0;
-    
-  while (NZeros < 5)
-    {
-      CbcRegWriter cWriter( fCbcInterface, "VCth", cVCth );
-      this->accept( cWriter );
-        
-      vector2D EventData; // then we take fNumEvents
-      uint32_t N = 0;
-      uint32_t AcqNum = 0;
-        
-      fBeBoardInterface->Start( fBoard ); // start of data capture
-      while (N < fNumEvents )
-        {
-	  fBeBoardInterface->ReadData(fBoard,AcqNum,false);
-	  const Event* cEvent = fBeBoardInterface->GetNextEvent(fBoard);
-	  while (cEvent)
-            {
-	      vector1D CbcData;
-	      for (auto& cCbc : fFe->fCbcVector )
-                {
-		  uint32_t cCbcId = cCbc->getCbcId();
-		  double result = cEvent->DataBit( 0 , cCbcId , fChannel);
-		  CbcData.push_back(result);
-                }
-	      EventData.push_back(CbcData);
-	      N++;
-	      if (N <= fNumEvents )
-		cEvent = fBeBoardInterface->GetNextEvent(fBoard);
-	      else break;
-            }
-	  AcqNum++;
-        }
-      fBeBoardInterface->Stop( fBoard, AcqNum ); // end of data capture
-        
-      vector1D EventAvg = EventAveraging(EventData);
-      if (EventAvg[0]+EventAvg[1] < 1 && cVCthStep==5)
-        {
-	  cVCthStep = 1;
-	  cVCth = cVCth-5;
-        }
-      if (EventAvg[0]+EventAvg[1]==0) NZeros++; // stop after threshold high enough
-      cDataMap[cVCth] = EventAvg;
-      cVCth += cVCthStep;
-    }
-    
-  vector1D cMidPoints = MakeScurve(cDataMap,cAmp,cVCth-1);
-  return cMidPoints;
 }
