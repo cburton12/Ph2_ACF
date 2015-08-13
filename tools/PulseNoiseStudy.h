@@ -30,7 +30,7 @@ public:
     void Initialize();
     void ParseSettings();
     void ScanAmplitudes();
-    vector1D findPulseMax( uint32_t fAmpMin );
+    std::vector<uint32_t> findPulseMax( uint32_t fAmpMin );
     vector1D ScanVCth( uint32_t cAmp );
     vector1D MakeScurve( DataMap cDataMap , uint32_t cAmp , uint32_t cVCthMax );
     void setSystemTestPulse( uint32_t cAmp );

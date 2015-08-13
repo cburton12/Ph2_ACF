@@ -28,8 +28,8 @@ void PulseNoiseStudy::Initialize()
       TH1F* cHist = new TH1F( cHistName , cHistName , AmpRange/fAmpStep , fAmpMin , fAmpMax);
       cHist->GetXaxis()->SetTitle( "Amplitude" );
       cHist->GetYaxis()->SetTitle( "Threshold" );
-      //      cHist->GetYaxis()->SetRangeUser(0.,200.);
       cHist->GetYaxis()->SetRangeUser(0.,fAmpMax+fVplus);
+      cHist->SetMarkerStyle(7);
       fHistMap[cCbc] = cHist;
     }
 }
@@ -37,7 +37,7 @@ void PulseNoiseStudy::Initialize()
 
 void PulseNoiseStudy::ScanAmplitudes()
 {
-  vector1D cPulsePeakVec = findPulseMax( fAmpMin );
+  std::vector<uint32_t> cPulsePeakVec = findPulseMax( fAmpMin );
 
   // sets for all cbc's... taking the average here I guess?
   setDelayAndTestGroup( floor( (cPulsePeakVec[0]+cPulsePeakVec[1]) / 2 ) );
@@ -64,32 +64,34 @@ void PulseNoiseStudy::ScanAmplitudes()
 }
 
 
-vector1D PulseNoiseStudy::findPulseMax( uint32_t fAmpMin )
+std::vector<uint32_t> PulseNoiseStudy::findPulseMax( uint32_t fAmpMin )
 {
   setSystemTestPulse( fAmpMin );
     
-  vector2D AmpScanVec;
+  std::map< uint32_t , vector1D > AmpScanMap;
 
-  uint32_t pDelayMin = 5060;
-  uint32_t pDelayMax = 5070;
+  uint32_t pDelayMin = 5000;
+  uint32_t pDelayMax = 5100;
 
   for (uint32_t cDelay = pDelayMin; cDelay < pDelayMax; cDelay++)
     {
       std::cout<<"Delay: "<<cDelay<<std::endl;
       setDelayAndTestGroup(cDelay);
       vector1D AmpScanRes = ScanVCth(fAmpMin);
-      AmpScanVec.push_back( AmpScanRes );
+      AmpScanMap[cDelay] = AmpScanRes;
     }
-  vector1D cPulsePeakVec;
+  std::vector<uint32_t> cPulsePeakVec;
   for (auto& cCbc : fFe->fCbcVector)
     {
-      uint32_t cPulsePeak = 0;
-      for (uint32_t ii=1; ii<AmpScanVec.size(); ii++)
+      uint32_t cCbcId = cCbc->getCbcId();
+      uint32_t cMaxBinKey = pDelayMin ;
+      uint32_t cMaxBinVal = AmpScanMap.find(pDelayMin)->second[cCbcId];
+      for (auto& cAmpScanRes : AmpScanMap)
 	{
-	  if ( AmpScanVec[ii] > AmpScanVec[cPulsePeak] )
-	    cPulsePeak=ii;
+	  if ( cAmpScanRes.second[cCbcId] > cMaxBinVal )
+	    cMaxBinKey = cAmpScanRes.first;
 	}
-      cPulsePeakVec.push_back(cPulsePeak);
+      cPulsePeakVec.push_back(cMaxBinKey);
     }
   std::cout<<"pp: "<<cPulsePeakVec[0]<<std::endl;
   return cPulsePeakVec;
