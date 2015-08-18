@@ -21,7 +21,7 @@ ExtObjectsRoot= -lPh2_Tools
 # %.o: %.cc %.h
 # 	$(CXX) -std=c++11 $(DevFlags) $(CCFlags) $(UserCCFlags) $(CCDefines) $(IncludePaths) -c -o $@ $<
 
-binaries=systemtest datatest interfacetest hybridtest cmtest calibrate commission channeltest histogram timewalk single ThScan delaytest noisetest
+binaries=systemtest datatest interfacetest hybridtest cmtest calibrate commission channeltest histogram timewalk single ThScan delaytest noisetest tornado
 binariesNoRoot=systemtest datatest interfacetest
 
 all: rootflags $(binaries) 
@@ -85,6 +85,10 @@ delaytest: delaytest.cc
 	cp $@ ../bin
 
 noisetest: noisetest.cc
+	$(CXX) -std=c++11 $(CCFlags) -o $@ $< $(IncludePaths) $(ExternalObjects)
+	cp $@ ../bin
+
+tornado: tornado.cc
 	$(CXX) -std=c++11 $(CCFlags) -o $@ $< $(IncludePaths) $(ExternalObjects)
 	cp $@ ../bin
 
